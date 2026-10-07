@@ -1,0 +1,15 @@
+{
+  "products": [
+    { "id": "cl-1", "name": "Clear Balance Gel Cleanser", "step": "cleanse", "price": 14, "treats": ["oiliness", "acne", "pores"] },
+    { "id": "cl-2", "name": "Cloud Cream Cleanser", "step": "cleanse", "price": 15, "treats": ["redness", "wrinkles", "texture"] },
+    { "id": "tr-1", "name": "10% Niacinamide Serum", "step": "treat", "price": 18, "treats": ["pores", "oiliness", "dark_spots", "texture"] },
+    { "id": "tr-2", "name": "15% Vitamin C Brightening Serum", "step": "treat", "price": 24, "treats": ["dark_spots", "dark_circles"] },
+    { "id": "tr-3", "name": "2% Salicylic Acid Blemish Serum", "step": "treat", "price": 16, "treats": ["acne", "pores", "texture"] },
+    { "id": "tr-4", "name": "0.3% Retinol Night Serum", "step": "treat", "price": 26, "treats": ["wrinkles", "texture"] },
+    { "id": "tr-5", "name": "Caffeine Under-Eye Cream", "step": "treat", "price": 19, "treats": ["dark_circles", "wrinkles"] },
+    { "id": "tr-6", "name": "Centella Calming Serum", "step": "treat", "price": 20, "treats": ["redness"] },
+    { "id": "mo-1", "name": "Ceramide Barrier Moisturizer", "step": "moisturize", "price": 22, "treats": ["redness", "wrinkles", "texture"] },
+    { "id": "mo-2", "name": "Oil-Free Water Gel Moisturizer", "step": "moisturize", "price": 21, "treats": ["oiliness", "pores", "acne"] },
+    { "id": "sp-1", "name": "Invisible SPF 50 Sunscreen", "step": "protect", "price": 17, "treats": ["dark_spots", "wrinkles", "redness"] }
+  ]
+}

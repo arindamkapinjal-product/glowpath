@@ -1,0 +1,5 @@
+.env
+node_modules
+.playwright-mcp
+last-result.json
+SUBMISSION.md
