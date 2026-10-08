@@ -6,6 +6,7 @@
 //   GET  /s2s/v2.0/task/skin-analysis/{id} -> data.task_status: running | success | error
 
 const fs = require("fs");
+const zlib = require("zlib");
 
 const BASE_URL = process.env.YOUCAM_BASE_URL || "https://yce-api-01.makeupar.com";
 const API_KEY = process.env.YOUCAM_API_KEY;
@@ -72,26 +73,46 @@ async function realAnalysis(imageBase64) {
     const d = res.data || {};
     if (d.task_status === "error") throw new Error(d.error_message || d.error || "Skin analysis failed");
     if (d.task_status === "success") {
-      try { fs.writeFileSync(__dirname + "/last-result.json", JSON.stringify(res, null, 2)); } catch {}
-      return { mock: false, scores: normalize(d.results) };
+      // Results arrive as a ZIP (score_info.json + one mask PNG per concern) behind a short-lived URL.
+      const zip = Buffer.from(await (await fetch(d.results.url, { signal: AbortSignal.timeout(30000) })).arrayBuffer());
+      const info = JSON.parse(unzipEntry(zip, "score_info.json").toString("utf8"));
+      try { fs.writeFileSync(__dirname + "/last-result.json", JSON.stringify(info, null, 2)); } catch {}
+      return { mock: false, scores: normalize(info), skinAge: info.skin_age ?? null };
     }
   }
   throw new Error("Skin analysis timed out");
 }
 
-// results.output is expected to be a list of { type, ui_score, raw_score, ... } (or an object keyed by type).
-function normalize(results) {
-  const out = results?.output ?? results ?? [];
-  const list = Array.isArray(out) ? out : Object.entries(out).map(([type, v]) => ({ type, ...v }));
-  const byType = Object.fromEntries(list.map((x) => [x.type, x]));
+// score_info.json: { "<action>": { ui_score, raw_score, output_mask_name }, all: { score }, skin_age }.
+function normalize(info) {
   const scores = {};
   for (const [concern, action] of Object.entries(ACTIONS)) {
-    const item = byType[action];
-    const raw = Number(item?.ui_score ?? item?.score);
+    const raw = Number(info?.[action]?.ui_score);
     if (!Number.isFinite(raw)) throw new Error(`No score for "${action}" in YouCam response (see last-result.json)`);
     scores[concern] = Math.round(SCORE_IS_SEVERITY ? raw : 100 - raw);
   }
   return scores;
+}
+
+// Minimal ZIP reader: find one entry by file name (any folder) via the central directory.
+function unzipEntry(buf, name) {
+  let eocd = buf.length - 22;
+  while (eocd >= 0 && buf.readUInt32LE(eocd) !== 0x06054b50) eocd--;
+  if (eocd < 0) throw new Error("YouCam result is not a valid ZIP");
+  let p = buf.readUInt32LE(eocd + 16);
+  const count = buf.readUInt16LE(eocd + 10);
+  for (let i = 0; i < count; i++) {
+    const method = buf.readUInt16LE(p + 10), csize = buf.readUInt32LE(p + 20);
+    const nlen = buf.readUInt16LE(p + 28), xlen = buf.readUInt16LE(p + 30), clen = buf.readUInt16LE(p + 32);
+    const local = buf.readUInt32LE(p + 42), fname = buf.toString("utf8", p + 46, p + 46 + nlen);
+    if (fname === name || fname.endsWith("/" + name)) {
+      const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+      const data = buf.subarray(start, start + csize);
+      return method === 0 ? data : zlib.inflateRawSync(data);
+    }
+    p += 46 + nlen + xlen + clen;
+  }
+  throw new Error(`"${name}" not found in YouCam result`);
 }
 
 // Remaining API units, or null if the balance can't be read.

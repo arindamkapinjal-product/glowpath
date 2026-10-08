@@ -13,22 +13,47 @@ try {
 const { analyze } = require("./youcam");
 const { products } = require("./products.json");
 
-const STEP_ORDER = ["cleanse", "treat", "moisturize", "protect"];
+const PUBLIC = path.join(__dirname, "public");
+const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml", ".webp": "image/webp" };
 
-// Pick the best product per step for the user's top concerns. Cleanser and sunscreen are always included.
+const topConcerns = (scores) => Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
+
+// Best product for a step = the one covering the most of the user's top concerns.
+function pick(step, top, exclude = []) {
+  return products
+    .filter((p) => p.step === step && !exclude.includes(p.id))
+    .map((p) => ({ p, hits: p.treats.filter((t) => top.includes(t)) }))
+    .sort((a, b) => b.hits.length - a.hits.length)[0];
+}
+const item = (step, best) => ({ step, id: best.p.id, name: best.p.name, price: best.p.price, why: best.hits });
+
+// Morning: cleanse, treat, moisturize, protect. Evening: cleanse, a second treatment, moisturize (no sunscreen).
 function buildRoutine(scores) {
-  const top = Object.entries(scores).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c]) => c);
-  const routine = [];
-  for (const step of STEP_ORDER) {
-    const best = products
-      .filter((p) => p.step === step)
-      .map((p) => ({ p, hits: p.treats.filter((t) => top.includes(t)) }))
-      .sort((a, b) => b.hits.length - a.hits.length)[0];
-    if (best && (best.hits.length || step === "protect" || step === "cleanse")) {
-      routine.push({ step, id: best.p.id, name: best.p.name, price: best.p.price, why: best.hits });
-    }
+  const top = topConcerns(scores);
+  const am = [];
+  for (const step of ["cleanse", "treat", "moisturize", "protect"]) {
+    const best = pick(step, top);
+    if (best && (best.hits.length || step === "protect" || step === "cleanse")) am.push(item(step, best));
   }
-  return { topConcerns: top, routine };
+  const amTreat = am.find((r) => r.step === "treat");
+  const pm = [];
+  for (const step of ["cleanse", "treat", "moisturize"]) {
+    const best = pick(step, top, step === "treat" && amTreat ? [amTreat.id] : []);
+    if (best) pm.push(item(step, best));
+  }
+  return { topConcerns: top, routine: am, evening: pm };
+}
+
+function serveStatic(req, res) {
+  const { pathname } = new URL(req.url, "http://x");
+  const rel = decodeURIComponent(pathname === "/" ? "/index.html" : pathname);
+  const file = path.normalize(path.join(PUBLIC, rel));
+  if (!file.startsWith(PUBLIC + path.sep)) { res.writeHead(403); return res.end("Forbidden"); }
+  fs.readFile(file, (err, data) => {
+    if (err) { res.writeHead(404); return res.end("Not found"); }
+    res.writeHead(200, { "Content-Type": TYPES[path.extname(file).toLowerCase()] || "application/octet-stream" });
+    res.end(data);
+  });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -37,22 +62,16 @@ const server = http.createServer(async (req, res) => {
     for await (const chunk of req) body += chunk;
     try {
       const { image } = JSON.parse(body);
-      const { scores, mock, fallback } = await analyze(image);
+      const { scores, mock, fallback, skinAge } = await analyze(image);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ mock, fallback, scores, ...buildRoutine(scores) }));
+      res.end(JSON.stringify({ mock, fallback, scores, skinAge: skinAge ?? null, ...buildRoutine(scores) }));
     } catch (e) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: e.message }));
     }
     return;
   }
-  const { pathname } = new URL(req.url, "http://x");
-  const file = path.join(__dirname, "public", pathname === "/" ? "index.html" : path.basename(pathname));
-  fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404); return res.end("Not found"); }
-    res.writeHead(200, { "Content-Type": file.endsWith(".html") ? "text/html" : "text/plain" });
-    res.end(data);
-  });
+  serveStatic(req, res);
 });
 
 server.listen(process.env.PORT || 3000, () => console.log("http://localhost:" + (process.env.PORT || 3000)));
