@@ -62,9 +62,9 @@ const server = http.createServer(async (req, res) => {
     for await (const chunk of req) body += chunk;
     try {
       const { image } = JSON.parse(body);
-      const { scores, mock, fallback, skinAge } = await analyze(image);
+      const { scores, mock, fallback, skinAge, view } = await analyze(image);
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ mock, fallback, scores, skinAge: skinAge ?? null, ...buildRoutine(scores) }));
+      res.end(JSON.stringify({ mock, fallback, scores, skinAge: skinAge ?? null, view: view ?? null, ...buildRoutine(scores) }));
     } catch (e) {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: e.message }));

@@ -122,6 +122,14 @@
   .cbar { height:4px; border-radius:999px; background:#EDE5DA; overflow:hidden; } .cbar div { height:100%; border-radius:999px; }
   .ctag { justify-self:end; white-space:nowrap; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; }
 
+  .where-frame { position:relative; width:min(100%, 300px); aspect-ratio:619/825; margin:0 auto; border-radius:20px; overflow:hidden; background:#2A2320; }
+  .where-frame img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+  .where-frame #wherePhoto { filter:saturate(.7) brightness(.8); }
+  .where-mask { filter:drop-shadow(0 0 1.5px rgba(255,255,255,.55)) saturate(1.3); }
+  .where-mask { animation:maskin .35s ease; }
+  @keyframes maskin { from { opacity:0; } to { opacity:1; } }
+  #whereChips button { height:32px; padding:0 12px; font-size:12px; }
+
   /* Routine */
   .banner { height:138px; border-radius:24px; overflow:hidden; flex:none; } .banner img { width:100%; height:100%; object-fit:cover; object-position:50% 62%; display:block; }
   .seg { display:flex; gap:4px; padding:4px; border-radius:999px; background:var(--chip); }
@@ -263,6 +271,12 @@
       </div>
     </section>
     <section class="focus"><img src="/img/texture.jpg" alt=""><div><span class="eyebrow" style="color:#FFFDF9;opacity:.85">Top focus</span><span style="font-family:var(--serif);font-size:26px;line-height:1" id="focusText"></span></div></section>
+    <section class="card" id="where" hidden style="padding:16px 18px 18px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:15px">See where</b><span class="small">Tap a concern</span></div>
+      <div class="ctabs" id="whereChips" role="group" aria-label="Concern to highlight"></div>
+      <div class="where-frame"><img id="wherePhoto" alt="Your analysed photo"><img id="whereMask" class="where-mask" alt=""></div>
+      <p class="small" id="whereCaption" style="margin:0"></p>
+    </section>
     <section class="card concerns">
       <div style="display:flex;justify-content:space-between;align-items:baseline"><b style="font-size:15px">8 concerns</b><span class="small">Lower is better</span></div>
       <div id="concernRows" style="display:flex;flex-direction:column;gap:9px"></div>
@@ -585,9 +599,12 @@ async function analyze(dataUrl, kp) {
     const d = await fetch("/api/analyze", { method: "POST", body: JSON.stringify({ image: dataUrl.split(",")[1] }) }).then((r) => r.json());
     if (d.error) throw new Error(d.error);
     stepState(3); await sleep(600); stepState(4);
+    const t = Date.now(), { view, ...result } = d;
+    // The photo and masks stay in memory for this visit only; never written to storage.
+    sessionView = view && view.image ? { t, ...view } : null;
     const scans = store.get("scans", []);
-    store.set("scans", [...scans, { t: Date.now(), scores: d.scores }].slice(-30));
-    store.set("last", { t: Date.now(), ...d });
+    store.set("scans", [...scans, { t, scores: d.scores }].slice(-30));
+    store.set("last", { t, ...result });
     $("#arch").classList.add("done"); $("#anTitle").textContent = "Your report is ready"; $("#anSub").textContent = "Here’s what YouCam AI found.";
     await sleep(500);
     show("report");
@@ -601,6 +618,20 @@ async function analyze(dataUrl, kp) {
 $("#retakeBtn").onclick = () => startScan();
 
 // ---------- Report ----------
+let sessionView = null, whereKey = null;
+function renderWhere(last) {
+  const ok = sessionView && sessionView.t === last.t && Object.keys(sessionView.masks || {}).length;
+  $("#where").hidden = !ok; if (!ok) return;
+  const keys = [...last.topConcerns, ...Object.keys(last.scores).sort((a, b) => last.scores[b] - last.scores[a]).filter((k) => !last.topConcerns.includes(k))].filter((k) => sessionView.masks[k]);
+  if (!keys.includes(whereKey)) whereKey = keys[0];
+  $("#whereChips").innerHTML = keys.map((k) => `<button data-k="${k}" aria-pressed="${k === whereKey}">${esc(LABELS[k] || k)}</button>`).join("");
+  $("#whereChips").querySelectorAll("button").forEach((b) => (b.onclick = () => { whereKey = b.dataset.k; renderWhere(last); }));
+  $("#wherePhoto").src = sessionView.image;
+  $("#whereMask").src = sessionView.masks[whereKey];
+  $("#whereMask").alt = `Areas where ${lc(whereKey)} was found`;
+  const [label] = sev(last.scores[whereKey]);
+  $("#whereCaption").textContent = `${LABELS[whereKey]} · ${label.toLowerCase()} (${last.scores[whereKey]}). Highlighted areas show where YouCam found it.`;
+}
 function renderReport() {
   const last = store.get("last", null); if (!last) return show("welcome");
   const scans = store.get("scans", []), prev = scans.length > 1 ? scans[scans.length - 2] : null;
@@ -618,6 +649,7 @@ function renderReport() {
   $("#skinAge").hidden = !last.skinAge;
   $("#skinAge").textContent = last.skinAge ? `Estimated skin age: ${last.skinAge}` : "";
   $("#focusText").textContent = last.topConcerns.map((c) => lc(c)).join(", ").replace(/^./, (m) => m.toUpperCase());
+  renderWhere(last);
   $("#concernRows").innerHTML = Object.entries(last.scores).sort((a, b) => b[1] - a[1]).map(([k, v]) => {
     const [label, col, bg] = sev(v);
     return `<div class="crow"><span>${esc(LABELS[k] || k)}</span><div class="cbar"><div style="width:${v}%;background:${col}"></div></div><span class="ctag" style="color:${col};background:${bg}">${label} · ${v}</span></div>`;

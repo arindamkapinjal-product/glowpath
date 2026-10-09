@@ -77,7 +77,7 @@ async function realAnalysis(imageBase64) {
       const zip = Buffer.from(await (await fetch(d.results.url, { signal: AbortSignal.timeout(30000) })).arrayBuffer());
       const info = JSON.parse(unzipEntry(zip, "score_info.json").toString("utf8"));
       try { fs.writeFileSync(__dirname + "/last-result.json", JSON.stringify(info, null, 2)); } catch {}
-      return { mock: false, scores: normalize(info), skinAge: info.skin_age ?? null };
+      return { mock: false, scores: normalize(info), skinAge: info.skin_age ?? null, view: maskView(zip, info) };
     }
   }
   throw new Error("Skin analysis timed out");
@@ -92,6 +92,23 @@ function normalize(info) {
     scores[concern] = Math.round(SCORE_IS_SEVERITY ? raw : 100 - raw);
   }
   return scores;
+}
+
+// The resized photo YouCam analysed plus one transparent mask per concern, aligned pixel for pixel.
+// Returned as data URLs for the page to hold in memory only; nothing is written to disk.
+function maskView(zip, info) {
+  try {
+    const dataUrl = (buf, type) => `data:${type};base64,${buf.toString("base64")}`;
+    const masks = {};
+    for (const [concern, action] of Object.entries(ACTIONS)) {
+      const name = info?.[action]?.output_mask_name;
+      if (name) masks[concern] = dataUrl(unzipEntry(zip, name), "image/png");
+    }
+    const imgName = info?.resize_image?.image_name || "resize_image.jpg";
+    return { image: dataUrl(unzipEntry(zip, imgName), "image/jpeg"), masks };
+  } catch {
+    return null; // masks are a bonus; the scores still work without them
+  }
 }
 
 // Minimal ZIP reader: find one entry by file name (any folder) via the central directory.
